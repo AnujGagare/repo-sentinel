@@ -9,6 +9,15 @@ services:
     startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
     envVars:
+      # Pinned explicitly -- Render's default (unpinned) Python version
+      # changes over time and was 3.14.3 at the time of first deploying
+      # this project, which broke the build: pydantic-core (a fastapi
+      # dependency) has no prebuilt wheel for 3.14 yet, so pip fell back
+      # to compiling it from source via Rust/maturin, which then failed
+      # because Render's build environment has a read-only cargo cache
+      # directory. 3.12 has stable prebuilt wheels for every dependency
+      # this project uses. Also present as a `.python-version` file at the
+      # repo root for the same reason, per Render's docs on precedence.
       - key: PYTHON_VERSION
         value: "3.12.7"
       - key: REPO_SENTINEL_LLM_BACKEND
@@ -25,6 +34,15 @@ services:
         value: ./data/index
       - key: REPO_SENTINEL_AUTO_SUMMARIZE
         value: "true"
+      # Render's free tier has a hard 512MB RAM limit. The default
+      # embedding model (jina-embeddings-v2-base-code) exceeds that on its
+      # own -- confirmed via a real deployment attempt that got OOM-killed
+      # (exit 137) before startup finished. A smaller general-purpose
+      # model fits comfortably; this is a genuine, stated tradeoff
+      # (weaker code-specific retrieval quality) in exchange for actually
+      # fitting in free-tier memory. See indexing/embedder.py.
+      - key: REPO_SENTINEL_EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
       # Protects /query and /reindex behind an X-API-Key header once this
       # is publicly reachable -- generate any random string for this
       # (e.g. `openssl rand -hex 32`) and set it manually in the Render

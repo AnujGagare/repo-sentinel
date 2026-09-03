@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     index_subdir: str | None = Field(default="fastapi", description="Subfolder within repo_path to actually index")
     index_dir: str = Field(default="./data/index", description="Where the vector store / BM25 / caches persist")
     auto_summarize: bool = Field(default=False, description="Auto-generate summaries for undocumented functions (adds one LLM call per undocumented function/method at index time -- slow on a local model, off by default for that reason)")
+    embedding_model: str = Field(
+        default="jinaai/jina-embeddings-v2-base-code",
+        description="Embedding model to use. The code-specific default needs "
+                    "meaningfully more RAM than fits in Render's free-tier 512MB "
+                    "limit -- override to a smaller model (e.g. "
+                    "sentence-transformers/all-MiniLM-L6-v2) for memory-constrained "
+                    "deployments. See render.yaml.",
+    )
     eval_set_path: str = Field(default="./src/eval/eval_set.json")
 
     # --- Generation backend ---

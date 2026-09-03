@@ -1,43 +1,47 @@
 """
 Embedder: turns chunk text into vectors for semantic search.
 
-Model: jinaai/jina-embeddings-v2-base-code -- a code-specific embedding
-model, not a general sentence-similarity model. This matters and isn't a
-cosmetic choice:
+Model is configurable (REPO_SENTINEL_EMBEDDING_MODEL, see config.py) rather
+than hardcoded, because the right choice differs by environment:
 
-  - It's trained on (code, natural-language-description) pairs -- the
-    exact cross-modal alignment this project needs ("how does X resolve
-    dependencies" <-> the Python code that does it). A general sentence
-    model like all-MiniLM-L6-v2 was never trained on that alignment task
-    and is measurably weaker at it -- confirmed empirically in this
-    project's own eval harness (see README "Embedding model" section):
-    a real function was consistently unretrievable for a plainly-worded
-    question until we either added a natural-language summary OR (this
-    change) switched to a model actually trained to understand code.
-  - It supports an 8192-token context window vs. 256 for MiniLM. Verified
-    in this project that a single undocumented 146-line function's
-    parameter list alone can exceed a 256-token budget, silently
-    truncating the model's input before it ever reaches the function's
-    actual logic. At 8192 tokens this is a non-issue for any function
-    this project is likely to encounter.
+  - Local dev (default): jinaai/jina-embeddings-v2-base-code -- a
+    code-specific embedding model, not a general sentence-similarity one.
+    Trained on (code, natural-language-description) pairs -- the exact
+    cross-modal alignment this project needs. Confirmed empirically in
+    this project's own eval harness: a real function was consistently
+    unretrievable under a general sentence model (all-MiniLM-L6-v2) until
+    switching to this one. Also has an 8192-token context window vs. 256
+    for MiniLM, which matters -- a single undocumented 146-line function's
+    parameter list alone was found to exceed a 256-token budget, silently
+    truncating the model's input before it reached the function's actual
+    logic.
+  - Deployed (Render free tier, see render.yaml): a smaller model such as
+    sentence-transformers/all-MiniLM-L6-v2. Found via real deployment
+    testing: Render's free web service has a hard 512MB RAM limit, and
+    jina-embeddings-v2-base-code's weights + PyTorch runtime overhead
+    exceed that on their own -- the process was OOM-killed (exit 137)
+    before the app ever finished starting up. This is a genuine, stated
+    tradeoff: the deployed demo has weaker embedding relevance than local
+    dev, in exchange for fitting in free-tier memory at all.
 
-Requires trust_remote_code=True -- jina-embeddings-v2 uses a custom
-ALiBi-based BERT variant with its own modeling code, not a stock
-transformers architecture. This is expected and safe for this specific,
-well-known model; sentence-transformers will otherwise raise an explicit
-error asking for it rather than silently misbehaving.
+trust_remote_code=True is passed unconditionally -- required for
+jina-embeddings-v2 (custom ALiBi-based BERT modeling code) and harmless
+for standard models like MiniLM that don't have any custom code to trust.
 
-Output dimension is 768 (not 384, as with MiniLM). If you're upgrading an
-existing index built with a prior embedder version, the vector store MUST
-be rebuilt from scratch (delete data/index and let full_index() run
-again) -- mixing embedding spaces in one ChromaDB collection silently
-produces meaningless nearest-neighbor results, not an error.
+Output dimension depends on the model (768 for jina-code, 384 for
+MiniLM) -- if you change REPO_SENTINEL_EMBEDDING_MODEL on an existing
+index, you MUST rebuild it from scratch (delete data/index and let
+full_index() run again). Mixing embedding spaces of different dimensions
+in one ChromaDB collection produces silently meaningless nearest-neighbor
+results, not an error.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import sys
+from pathlib import Path
 
 # huggingface_hub's model download has NO timeout by default -- a stalled
 # connection (firewall silently dropping packets, a flaky network) hangs
@@ -51,11 +55,29 @@ os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import load_settings
+
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "jinaai/jina-embeddings-v2-base-code"
-EMBEDDING_DIM = 768
-MAX_SEQ_LENGTH = 2048
+_settings, _, _ = load_settings()
+
+MODEL_NAME = _settings.embedding_model
+# Upper bound on sequence length regardless of what the model natively
+# supports -- prevents a specific real bug: this project's own chunker can
+# produce pathologically long inputs (method_group chunks, which
+# concatenate several full methods' source into one string and can run to
+# thousands of lines). When a batch mixes one such giant sequence with
+# shorter ones, attention memory scales quadratically with the LONGEST
+# sequence in the batch, not the average -- this caused an attempted
+# 103GB allocation and crashed indexing entirely under jina-code's native
+# 8192-token window. Applied as min(model's own native max, this cap) in
+# _get_model() below -- NEVER raised above a smaller model's native
+# max_seq_length, since forcing a longer sequence than a model's
+# positional embeddings support would crash it outright (e.g.
+# all-MiniLM-L6-v2's absolute position embeddings top out well below
+# this value).
+MAX_SEQ_LENGTH_CAP = 2048
 ENCODE_BATCH_SIZE = 8  # smaller batches bound worst-case memory when a batch mixes very different sequence lengths
 
 _model: SentenceTransformer | None = None
@@ -64,7 +86,7 @@ _model: SentenceTransformer | None = None
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        logger.info("Loading embedding model %s (first run downloads ~640MB)...", MODEL_NAME)
+        logger.info("Loading embedding model %s (first run downloads it)...", MODEL_NAME)
         try:
             _model = SentenceTransformer(MODEL_NAME, trust_remote_code=True)
         except Exception as e:
@@ -79,28 +101,21 @@ def _get_model() -> SentenceTransformer:
             )
             raise
 
-        # Cap effective sequence length well below the model's rated 8192
-        # max. Real bug found in production testing of this project: this
-        # project's own chunker can produce pathologically long inputs --
-        # specifically the method_group chunks (see code_chunker.py), which
-        # concatenate several full methods' source into one string and can
-        # run to thousands of lines. When a batch mixes one such giant
-        # sequence with shorter ones, attention memory scales quadratically
-        # with the LONGEST sequence in the batch, not the average -- this
-        # caused an attempted 103GB allocation and crashed indexing
-        # entirely. 2048 tokens comfortably covers any realistic single
-        # function while making pathological group-chunk outliers get
-        # truncated (silently losing the tail of the least-realistic
-        # inputs) instead of blowing up memory for the whole batch.
-        _model.max_seq_length = MAX_SEQ_LENGTH
-        logger.info("Capped embedding model max_seq_length to %d (model's rated max is 8192) "
-                    "to prevent pathologically long chunks from exploding attention memory.",
-                    MAX_SEQ_LENGTH)
+        native_max = _model.max_seq_length
+        effective_max = min(native_max, MAX_SEQ_LENGTH_CAP)
+        _model.max_seq_length = effective_max
+        logger.info(
+            "Embedding model max_seq_length: native=%d, capped=%d "
+            "(cap prevents pathologically long chunks from exploding "
+            "attention memory; never raises a model above its own native max).",
+            native_max, effective_max,
+        )
     return _model
 
 
 def embed_texts(texts: list[str]) -> np.ndarray:
-    """Embed a batch of texts. Returns shape (len(texts), 768)."""
+    """Embed a batch of texts. Returns shape (len(texts), model_dim) --
+    dimension depends on which model is configured, see module docstring."""
     model = _get_model()
     return model.encode(texts, show_progress_bar=False, convert_to_numpy=True, batch_size=ENCODE_BATCH_SIZE)
 
@@ -121,7 +136,6 @@ if __name__ == "__main__":
     t0 = time.time()
     vecs = embed_texts(texts)
     print(f"Embedded {len(texts)} chunks in {time.time()-t0:.2f}s, shape={vecs.shape}")
-    assert vecs.shape[1] == EMBEDDING_DIM, f"expected {EMBEDDING_DIM}-dim vectors, got {vecs.shape[1]}"
 
     query_vec = embed_query("how does dependency resolution work")
     sims = vecs @ query_vec / (np.linalg.norm(vecs, axis=1) * np.linalg.norm(query_vec))

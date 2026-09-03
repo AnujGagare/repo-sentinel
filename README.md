@@ -115,6 +115,21 @@ let `full_index()` run again. Mixing 384-dim (MiniLM) and 768-dim
 (jina-code) vectors in one collection produces silently meaningless
 nearest-neighbor results, not an error.
 
+**A real deployment lesson, not just a local-dev one:** the code-specific
+model above is the right choice for local development, but it doesn't fit
+Render's free-tier memory limit. Confirmed by an actual failed deployment
+— the process was OOM-killed (`exit 137`, Linux's SIGKILL) partway
+through startup, because the model's weights plus PyTorch's runtime
+overhead exceeded Render's hard 512MB RAM cap on its own, before the rest
+of the app even loaded. The fix is `REPO_SENTINEL_EMBEDDING_MODEL`
+(`src/config.py`, `src/indexing/embedder.py`) — configurable per
+environment, the same pattern already used for `REPO_SENTINEL_LLM_BACKEND`
+(Ollama locally, Groq deployed). `render.yaml` sets it to
+`all-MiniLM-L6-v2` for the deployed version. This is a genuine, stated
+tradeoff — the deployed demo has weaker embedding relevance than local
+dev, in exchange for actually fitting in free-tier memory — not something
+worth hiding.
+
 ## Eval-driven debugging: what actually happened
 
 Worth documenting honestly rather than presenting a clean number with no
