@@ -9,6 +9,8 @@ services:
     startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /healthz
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: REPO_SENTINEL_LLM_BACKEND
         value: groq
       - key: GROQ_API_KEY
