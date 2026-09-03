@@ -1,0 +1,19 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+requests==2.32.3
+gitpython==3.1.43
+rank_bm25==0.2.2
+chromadb==0.5.20
+sentence-transformers==3.2.1
+einops==0.8.0
+# numpy: pinned to a range, not an exact version, deliberately. An exact
+# pin (e.g. ==1.26.4) broke on Python 3.13 on Windows during real testing
+# of this project -- no prebuilt wheel existed for that combination, so
+# pip fell back to building from source with an unstable MinGW toolchain,
+# which crashed the app on import with no useful error message. This range
+# is bounded above by scipy's own constraint (a transitive dependency via
+# chromadb/sentence-transformers) to avoid a second, different conflict.
+numpy>=1.26.4,<2.5

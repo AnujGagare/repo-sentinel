@@ -1,0 +1,10 @@
+data/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+.env
+*.pkl
+.repo_sentinel_state.json
+summary_cache.json

@@ -1,0 +1,13 @@
+data/fastapi/
+data/index/
+data/index_test/
+data/chroma/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pkl
+.repo_sentinel_state.json
+summary_cache.json
+.env
+.DS_Store

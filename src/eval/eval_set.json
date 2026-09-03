@@ -1,0 +1,51 @@
+[
+  {
+    "question": "How does FastAPI resolve dependencies declared with Depends()?",
+    "expected_file_path": "fastapi/dependencies/utils.py",
+    "expected_symbol_name": "solve_dependencies"
+  },
+  {
+    "question": "What class is used to mark a parameter as an injectable dependency?",
+    "expected_file_path": "fastapi/params.py",
+    "expected_symbol_name": "Depends"
+  },
+  {
+    "question": "How are path parameters extracted from a request URL?",
+    "acceptable_answers": [
+      {"file_path": "fastapi/routing.py", "symbol_name": "get_request_handler"},
+      {"file_path": "fastapi/utils.py", "symbol_name": "get_path_param_names"}
+    ]
+  },
+  {
+    "question": "How does FastAPI generate the OpenAPI schema for an app?",
+    "acceptable_answers": [
+      {"file_path": "fastapi/openapi/utils.py", "symbol_name": "get_openapi"},
+      {"file_path": "fastapi/applications.py", "symbol_name": "FastAPI.openapi"}
+    ]
+  },
+  {
+    "question": "How is an HTTPException converted into a JSON error response?",
+    "expected_file_path": "fastapi/exception_handlers.py",
+    "expected_symbol_name": "http_exception_handler"
+  },
+  {
+    "question": "What class represents a background task to be run after returning a response?",
+    "expected_file_path": "fastapi/background.py",
+    "expected_symbol_name": "BackgroundTasks"
+  },
+  {
+    "question": "How does FastAPI validate request bodies against Pydantic models?",
+    "acceptable_answers": [
+      {"file_path": "fastapi/dependencies/utils.py", "symbol_name": "request_body_to_args"},
+      {"file_path": "fastapi/dependencies/utils.py", "symbol_name": "_get_body_field"},
+      {"file_path": "fastapi/dependencies/utils.py", "symbol_name": "_validate_value_with_model_field"}
+    ]
+  },
+  {
+    "question": "What class represents the main ASGI application instance in FastAPI?",
+    "expected_file_path": "fastapi/applications.py",
+    "expected_symbol_name": "FastAPI"
+  }
+]
+
+

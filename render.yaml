@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: repo-sentinel-api
+    runtime: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      git clone --depth 1 https://github.com/fastapi/fastapi.git ./data/fastapi
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: REPO_SENTINEL_LLM_BACKEND
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false        # set this manually in the Render dashboard, don't commit it
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: REPO_SENTINEL_REPO_PATH
+        value: ./data/fastapi
+      - key: REPO_SENTINEL_INDEX_SUBDIR
+        value: fastapi
+      - key: REPO_SENTINEL_INDEX_DIR
+        value: ./data/index
+      - key: REPO_SENTINEL_AUTO_SUMMARIZE
+        value: "true"
+      # Protects /query and /reindex behind an X-API-Key header once this
+      # is publicly reachable -- generate any random string for this
+      # (e.g. `openssl rand -hex 32`) and set it manually in the Render
+      # dashboard, matching what your frontend sends. Leaving this unset
+      # means the deployed API is fully open, which is fine only for a
+      # short-lived demo you're actively watching.
+      - key: REPO_SENTINEL_API_KEY
+        sync: false
+      - key: REPO_SENTINEL_RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: REPO_SENTINEL_LOG_LEVEL
+        value: INFO
+    # Note: Render's free tier does not support persistent disks, so the
+    # index is rebuilt automatically on every cold start (the API's startup
+    # event checks for an existing index and runs full_index() if missing --
+    # see src/api/main.py). This costs several minutes on first request
+    # after a spin-down (the code-specific embedding model download plus
+    # full re-indexing, both slower than the smaller model this project
+    # started with) -- an explicit, documented tradeoff for a free-tier
+    # demo deployment rather than a hidden cost.
